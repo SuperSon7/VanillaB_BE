@@ -27,6 +27,7 @@ import org.springframework.web.util.HtmlUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author vani
@@ -56,16 +57,26 @@ public class PostService {
         Pageable pageable = PageRequest.of(0, size);
         Slice<Post> posts = postRepository.findByCursor(cursorId, cursorCreatedAt, pageable);
 
-        return convertToSliceResponse(posts);
+        List<String> postIds = posts.getContent().stream()
+                .map(Post::getId)
+                .toList();
+
+        Map<String, Integer> likeCounts = likeService.getLikeCountsBatch(postIds);
+
+        return convertToSliceResponse(posts, likeCounts);
     }
 
     /**
      * 응답 형태로 변환하는 메서드
      * */
-    private SliceResponse<PostSummaryResponse> convertToSliceResponse(Slice<Post> posts) {
+    private SliceResponse<PostSummaryResponse> convertToSliceResponse(Slice<Post> posts, Map<String, Integer> likeCounts) {
         // Entity -> DTO 변환
         List<PostSummaryResponse> items = posts.getContent().stream()
-                .map(this::toPostSummaryResponse)
+                .map(post -> {
+                    int count = likeCounts.getOrDefault(post.getId(), 0);
+
+                    return toPostSummaryResponse(post, count);
+                })
                 .toList();
 
         SliceResponse.Cursor nextCursor = createNewNextCursor(posts);
@@ -90,9 +101,8 @@ public class PostService {
     /**
      * 응답 DTO로 변환하는 메서드
      * */
-    private PostSummaryResponse toPostSummaryResponse(Post post) {
+    private PostSummaryResponse toPostSummaryResponse(Post post, int likeCount) {
         String postId = post.getId();
-
         String profileImageKey = post.getUser().getProfileImageKey();
         String authorImageUrl = null;
 
@@ -109,7 +119,7 @@ public class PostService {
                         authorImageUrl
                 ),
                 new PostSummaryResponse.Stats(
-                        likeService.getLikeCount(postId),
+                        likeCount,
                         post.getCommentCount(),
                         post.getViewCount()
                 )

@@ -14,6 +14,11 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
  * 좋아요 관련 로직을 처리하는 클래스
  * Redis를 사용하여 좋아요 수를 캐싱, 스케줄러로 DB와 동기화
@@ -66,11 +71,11 @@ public class LikeService {
     }
 
     /**
-     * Redis에서 좋아요수를 조회하고 없다면 DB에서 로드합니다.
+     * Redis에서 좋아요 수를 조회하고 없다면 DB에서 로드합니다.
      */
     @Transactional
     public Integer getLikeCount(String postId){
-
+        log.info("🚨 [Before] Redis 단건 조회 호출! postId={}", postId);
         String redisKey = LIKE_COUNT_KEY_PREFIX + postId;
         Object value = likesRedisTemplate.opsForValue().get(redisKey);
         if (value == null){
@@ -80,5 +85,56 @@ public class LikeService {
             return count;
         }
         return Integer.parseInt(value.toString());
+    }
+
+    /**
+     * Redis에서 좋아요 수를 배치로 조회하고 없다면 DB에서 배치로 로드합니다.
+     * */
+    public Map<String, Integer> getLikeCountsBatch(List<String> postIds) {
+        if (postIds.isEmpty()){
+            return new HashMap<>();
+        }
+        log.info("✅ [After] Redis 배치(Pipeline) 조회 호출! 대상={}개", postIds.size());
+        List<String> keys = postIds.stream()
+                .map(id -> LIKE_COUNT_KEY_PREFIX + id)
+                .toList();
+
+        // MGET으로 한 번에 불러옴
+        List<Object> values = likesRedisTemplate.opsForValue().multiGet(keys);
+
+        Map<String, Integer> result = new HashMap<>();
+        List<String> missingPostIds = new ArrayList<>();
+
+        // 있는 건 담고, 없는건 missing
+        for (int i = 0; i < postIds.size(); i++) {
+            if(values.get(i) != null) {
+                result.put(postIds.get(i), Integer.parseInt(values.get(i).toString()));
+            } else {
+                missingPostIds.add(postIds.get(i));
+            }
+        }
+
+        if (!missingPostIds.isEmpty()) {
+            List<Object[]> dbResults = likeRepository.countByPostIdsIn(missingPostIds);
+
+            Map<String, Integer> dbMap = new HashMap<>();
+            for (Object[] row : dbResults) {
+                String id = (String) row[0];
+                Integer count = ((Number) row[1]).intValue();
+                dbMap.put(id, count);
+                result.put(id, count);
+            }
+
+            // DB 조회결과에도 없으면 좋아요 0개
+            for (String id : missingPostIds){
+                result.putIfAbsent(id, 0);
+                dbMap.putIfAbsent(id, 0);
+            }
+
+            Map<String, String> updates = new HashMap<>();
+            dbMap.forEach((id, count) -> updates.put(LIKE_COUNT_KEY_PREFIX + id, count.toString()));
+            likesRedisTemplate.opsForValue().multiSet(updates);
+        }
+        return result;
     }
 }
