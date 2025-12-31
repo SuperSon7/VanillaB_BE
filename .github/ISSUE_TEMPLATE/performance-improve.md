@@ -1,5 +1,5 @@
 ---
-name: Custom issue template
+name: Performance improve
 about: performance improve
 title: ''
 labels: ''
