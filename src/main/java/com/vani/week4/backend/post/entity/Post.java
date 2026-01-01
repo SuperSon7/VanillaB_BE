@@ -1,6 +1,8 @@
 package com.vani.week4.backend.post.entity;
 
 import com.vani.week4.backend.comment.entity.Comment;
+import com.vani.week4.backend.global.ErrorCode;
+import com.vani.week4.backend.global.exception.UnauthorizedException;
 import com.vani.week4.backend.interaction.entity.Like;
 import com.vani.week4.backend.user.entity.User;
 import jakarta.persistence.*;
@@ -83,5 +85,11 @@ public class Post {
     public void decreaseCommentCount() { this.commentCount--; }
     public void updateLikeCount(Integer likeCount) {
         this.likeCount = likeCount;
+    }
+
+    public void validateOwner(User requester) {
+        if (!this.user.getId().equals(requester.getId())) {
+            throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
+        }
     }
 }

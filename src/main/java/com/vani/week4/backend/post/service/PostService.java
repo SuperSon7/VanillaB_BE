@@ -28,6 +28,7 @@ import org.springframework.web.util.HtmlUtils;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * @author vani
@@ -102,21 +103,13 @@ public class PostService {
      * 응답 DTO로 변환하는 메서드
      * */
     private PostSummaryResponse toPostSummaryResponse(Post post, int likeCount) {
-        String postId = post.getId();
-        String profileImageKey = post.getUser().getProfileImageKey();
-        String authorImageUrl = null;
-
-        if (profileImageKey != null && !profileImageKey.isBlank()) {
-            authorImageUrl = s3Service.createPresignedGetUrl(profileImageKey);
-        }
-
         return new PostSummaryResponse(
-                postId,
+                post.getId(),
                 post.getTitle(),
                 post.getCreatedAt(),
                 new PostSummaryResponse.Author(
                         post.getUser().getNickname(),
-                        authorImageUrl
+                        resolveImageUrl(post.getUser().getProfileImageKey())
                 ),
                 new PostSummaryResponse.Stats(
                         likeCount,
@@ -135,16 +128,10 @@ public class PostService {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new PostNotFoundException(ErrorCode.RESOURCE_NOT_FOUND));
         //TODO Count 로직 개선 필요
-        String imageKey = post.getPostContent().getPostImageKey();
-        String imageUrl = null;
-
-        if (imageKey != null && !imageKey.isEmpty()) {
-            imageUrl = s3Service.createPresignedGetUrl(imageKey);
-        }
 
         post.incrementViewCount();
         Boolean isLiked = likeRepository.existsByUserIdAndPostId(currentUser.getId(), postId);
-        return toPostDetailResponse(post, imageUrl, isLiked);
+        return toPostDetailResponse(post, isLiked);
     }
 
     /**
@@ -168,17 +155,9 @@ public class PostService {
                 .build();
 
         post.setPostContent(postContent);
-
         postRepository.save(post);
 
-        if (request.postImageKey() != null) {
-            log.warn("이미지키 없음. [{}] ", request.postImageKey());
-
-            String  imageUrl = s3Service.createPresignedGetUrl(request.postImageKey());
-            return toPostDetailResponse(post, imageUrl, false);
-        } else {
-            return toPostDetailResponse(post, null, false);
-        }
+        return toPostDetailResponse(post, false);
     }
 
     /**
@@ -214,38 +193,29 @@ public class PostService {
 
         post.updateModifiedDate();
         Boolean isLiked = likeRepository.existsByUserIdAndPostId(user.getId(), postId);
-        String postImageUrl = s3Service.createPresignedGetUrl(post.getPostContent().getPostImageKey());
 
-        return toPostDetailResponse(post, postImageUrl, isLiked);
+        return toPostDetailResponse(post, isLiked);
     }
 
-    private PostDetailResponse toPostDetailResponse(Post post, String postImageUrl, Boolean isLiked) {
-        PostContent content = post.getPostContent();
-        User user = post.getUser();
+    private PostDetailResponse toPostDetailResponse(Post post, Boolean isLiked) {
+        String postImageKey = post.getPostContent().getPostImageKey();
+        String profileImageKey = post.getUser().getProfileImageKey();
 
-        String profileImageKey = user.getProfileImageKey();
-        String authorProfileUrl = null;
-
-        if (profileImageKey != null && !profileImageKey.isBlank()) {
-            authorProfileUrl = s3Service.createPresignedGetUrl(profileImageKey);
-        }
-
-        String postId = post.getId();
         return new PostDetailResponse(
-                postId,
+                post.getId(),
                 post.getTitle(),
                 post.getCreatedAt(),
                 post.getUpdatedAt(),
                 new PostDetailResponse.ContentDetail(
-                        content.getContent(),
-                        postImageUrl
+                        post.getPostContent().getContent(),
+                        resolveImageUrl(postImageKey)
                 ),
                 new PostDetailResponse.Author(
-                        user.getNickname(),
-                        authorProfileUrl
+                        post.getUser().getNickname(),
+                        resolveImageUrl(profileImageKey)
                 ),
                 new PostDetailResponse.Stats(
-                        likeService.getLikeCount(postId),
+                        likeService.getLikeCount(post.getId()),
                         post.getCommentCount(),
                         post.getViewCount(),
                         isLiked
@@ -268,4 +238,18 @@ public class PostService {
         postRepository.delete(post);
 
     }
+
+    /**
+     * s3 PresignedUrl 을 생성하는 공통 메서드
+     * @param imageKey
+     * @return PresignedUrl
+     */
+    private String resolveImageUrl(String imageKey) {
+        return Optional.ofNullable(imageKey)
+                .filter(key -> !key.isBlank())
+                .map(s3Service::createPresignedGetUrl)
+                .orElse(null);
+    }
+
 }
+
