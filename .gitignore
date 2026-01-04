@@ -50,3 +50,33 @@ logs/
 
 load-scripts/
 mysql-data/
+
+################################
+# Terraform
+################################
+
+# Local .terraform directories
+.terraform/
+**/.terraform/*
+
+# Terraform state files (절대 커밋 금지)
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Terraform variable files (민감 정보 포함 가능)
+*.tfvars
+*.tfvars.json
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files
+.terraformrc
+terraform.rc
